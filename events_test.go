@@ -1,8 +1,8 @@
 package eventually_test
 
 import (
-	events "github.com/erkkah/eventually"
 	"fmt"
+	events "github.com/erkkah/eventually"
 	"testing"
 	"time"
 )

@@ -1,6 +1,10 @@
-### Eventually - yet another in-process asynchronous event bus for Go
+[![GitHub release](https://img.shields.io/github/release/erkkah/eventually.svg)](https://github.com/erkkah/eventually/releases)
+[![Go Report Card](https://goreportcard.com/badge/github.com/erkkah/eventually)](https://goreportcard.com/badge/github.com/erkkah/eventually)
+[![Build Status](https://travis-ci.org/erkkah/eventually.svg?branch=master)](https://travis-ci.org/erkkah/eventually)
 
-Eventually (https://github.com/erkkah/eventually) is an event bus for Go, providing
+# Eventually - yet another in-process asynchronous event bus for Go
+
+__Eventually__ (https://github.com/erkkah/eventually) is an event bus for Go, providing
 an asynchronous in-process decoupled event pub/sub system.
 
 Providing an optional event map makes listener registration and event publishing
