@@ -14,14 +14,28 @@ import (
 // Events are distributed asynchronously on named topic channels, with
 // a list of arbitrary arguments.
 type Bus interface {
-	// Once registers a callback that will receive at most one event
+	// Once registers a callback that will receive at most one event.
+	// The callback is a function expecting the same arguments as
+	// were passed with the event.
 	Once(topic string, callback interface{}) (Listener, error)
-	// On registers a callback that will receive all events until unsubscribed
+
+	// On registers a callback that will receive all events until unsubscribed.
+	// The callback is a function expecting the same arguments as
+	// were passed with the event.
 	On(topic string, callback interface{}) (Listener, error)
+
 	// Post sends an event to all listeners for a specific topic
 	Post(topic string, data ...interface{}) error
+
 	// Unsubscribe removes previously registered topic callbacks
 	Unsubscribe(topic string, listener Listener)
+
+	// OnError registers a callback for receiving errors from
+	// listener panics.
+	// At most one error handler at a time can be registered.
+	// If no error handler is registered, panics leaked out from
+	// calling listener callbacks will cause a real panic.
+	OnError(callback func(topic string, err error))
 }
 
 type event struct {
@@ -63,6 +77,7 @@ type bus struct {
 	requests       chan busRequest
 	topicListeners map[string][]Listener
 	eventMap       *EventMap
+	errorHandler   func(topic string, err error)
 }
 
 func prepareArguments(generic []interface{}) (specific []reflect.Value) {
@@ -101,14 +116,15 @@ func (b *bus) registerListener(topic string, callback interface{}, callOnce bool
 	go func(l Listener) {
 		for {
 			evnt, alive := <-l.channel
-			if evnt != nil {
-				if err := callListener(l.callback, evnt); err != nil {
-					// ??? Replace with error on error channel?
-					fmt.Println(err)
-				}
-			}
 			if !alive {
 				break
+			}
+			if err := callListener(l.callback, evnt); err != nil {
+				if b.errorHandler != nil {
+					b.errorHandler(l.topic, err)
+				} else {
+					panic(err)
+				}
 			}
 		}
 	}(l)
@@ -152,6 +168,10 @@ func (b *bus) Post(topic string, data ...interface{}) error {
 		errors:  errors,
 	}
 	return <-errors
+}
+
+func (b *bus) OnError(callback func(topic string, err error)) {
+	b.errorHandler = callback
 }
 
 // Option is the type of optional arguments to NewBus.

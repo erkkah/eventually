@@ -128,6 +128,24 @@ func TestEventMap_UnknownTopic(t *testing.T) {
 	}
 }
 
+func TestOnError(t *testing.T) {
+	b := events.NewBus()
+
+	crashed := make(chan bool)
+
+	b.OnError(func(topic string, err error) {
+		crashed <- true
+	})
+
+	b.Once("crash", func() {
+		panic("Crash")
+	})
+
+	b.Post("crash")
+
+	<-crashed
+}
+
 func Example() {
 	foo := func(msg string) {
 		fmt.Printf("foo: %v\n", msg)
