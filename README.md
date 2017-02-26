@@ -1,3 +1,4 @@
+[![GoDoc](https://godoc.org/github.com/erkkah/eventually?status.svg)](https://godoc.org/github.com/erkkah/eventually)
 [![GitHub release](https://img.shields.io/github/release/erkkah/eventually.svg)](https://github.com/erkkah/eventually/releases)
 [![Go Report Card](https://goreportcard.com/badge/github.com/erkkah/eventually)](https://goreportcard.com/badge/github.com/erkkah/eventually)
 [![Build Status](https://travis-ci.org/erkkah/eventually.svg?branch=master)](https://travis-ci.org/erkkah/eventually)

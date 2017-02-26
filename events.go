@@ -1,3 +1,8 @@
+// Package eventually provides yet another in-process asynchronous event bus for Go.
+// Events are distributed on named topics, with an associated list of arguments.
+//
+// Using an "event map", it is possible to make the bus stricter about what events
+// to accept, and which arguments different events accept.
 package eventually
 
 import (
