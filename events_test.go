@@ -168,7 +168,7 @@ func Example() {
 	b.Post("heartbeat", "3")
 }
 
-func Example_EventMap() {
+func ExampleEventMap() {
 	// EventMap maps from topic to a template of instances
 	// describing the expected event properties.
 	topics := events.EventMap{
