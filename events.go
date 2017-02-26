@@ -6,7 +6,8 @@ import (
 )
 
 // Bus is a simple channel based event bus.
-// Events are distributed on topic channels.
+// Events are distributed asynchronously on named topic channels, with
+// a list of arbitrary arguments.
 type Bus interface {
 	// Once registers a callback that will receive at most one event
 	Once(topic string, callback interface{}) (Listener, error)
@@ -18,12 +19,13 @@ type Bus interface {
 	Unsubscribe(topic string, listener Listener)
 }
 
-type message struct {
+type event struct {
 	topic string
 	data  []interface{}
 }
 
-// Listener is used in Unsubscribe calls to refer to a registered listener
+// Listener is returned from Once and On calls and is used in Unsubscribe
+// calls to refer to registered callbacks.
 type Listener struct {
 	topic    string
 	once     bool
@@ -41,12 +43,12 @@ type requestType int
 const (
 	addListenerReq requestType = iota
 	removeListenerReq
-	sendMessageReq
+	sendEventReq
 )
 
 type busRequest struct {
 	request  requestType
-	message  message
+	event    event
 	listener Listener
 	errors   chan error
 }
@@ -55,7 +57,7 @@ type bus struct {
 	queueLength    int
 	requests       chan busRequest
 	topicListeners map[string][]Listener
-	messageMap     *MessageMap
+	eventMap       *EventMap
 }
 
 func prepareArguments(generic []interface{}) (specific []reflect.Value) {
@@ -66,13 +68,13 @@ func prepareArguments(generic []interface{}) (specific []reflect.Value) {
 	return
 }
 
-func callListener(callback reflect.Value, msg []interface{}) (err error) {
+func callListener(callback reflect.Value, evnt []interface{}) (err error) {
 	defer func() {
 		if x := recover(); x != nil {
-			err = fmt.Errorf("Failed to call listener %#v with %#v: %v", callback, msg, x)
+			err = fmt.Errorf("Failed to call listener %#v with %#v: %v", callback, evnt, x)
 		}
 	}()
-	args := prepareArguments(msg)
+	args := prepareArguments(evnt)
 	callback.Call(args)
 	return nil
 }
@@ -93,9 +95,10 @@ func (b *bus) registerListener(topic string, callback interface{}, callOnce bool
 
 	go func(l Listener) {
 		for {
-			msg, alive := <-l.channel
-			if msg != nil {
-				if err := callListener(l.callback, msg); err != nil {
+			evnt, alive := <-l.channel
+			if evnt != nil {
+				if err := callListener(l.callback, evnt); err != nil {
+					// ??? Replace with error on error channel?
 					fmt.Println(err)
 				}
 			}
@@ -132,34 +135,36 @@ func (b *bus) Unsubscribe(topic string, listener Listener) {
 }
 
 func (b *bus) Post(topic string, data ...interface{}) error {
-	msg := message{
+	evnt := event{
 		topic, data,
 	}
 
 	errors := make(chan error)
 
 	b.requests <- busRequest{
-		request: sendMessageReq,
-		message: msg,
+		request: sendEventReq,
+		event:   evnt,
 		errors:  errors,
 	}
 	return <-errors
 }
 
-// Option is the type of optional arguments to NewBus
+// Option is the type of optional arguments to NewBus.
 type Option func(*bus)
 
-// MessageMap describes message topics and associated argument types
-type MessageMap map[string][]interface{}
+// EventMap describes event topics and associated argument types.
+type EventMap map[string][]interface{}
 
-// WithMessageMap sets the message map to check listeners and messages against
-func WithMessageMap(msgMap MessageMap) Option {
+// WithEventMap sets the event map to check listeners and events against.
+func WithEventMap(eventMap EventMap) Option {
 	return func(b *bus) {
-		b.messageMap = &msgMap
+		b.eventMap = &eventMap
 	}
 }
 
-// WithQueueLength sets the internal queue length for bus communications
+// WithQueueLength sets the internal queue length for bus communications.
+// When the queue is full, requests to the bus start to block.
+// Defaults to 10.
 func WithQueueLength(length int) Option {
 	return func(b *bus) {
 		b.queueLength = length
@@ -169,17 +174,18 @@ func WithQueueLength(length int) Option {
 func typesOf(args []interface{}) []reflect.Type {
 	result := []reflect.Type{}
 	for _, arg := range args {
-		result = append(result, reflect.TypeOf(arg))
+		argType := reflect.TypeOf(arg)
+		result = append(result, argType)
 	}
 	return result
 }
 
 func (b *bus) verifyListener(l Listener) error {
-	if b.messageMap == nil {
+	if b.eventMap == nil {
 		return nil
 	}
-	if messageType, found := (*b.messageMap)[l.topic]; found {
-		argTypes := typesOf(messageType)
+	if eventType, found := (*b.eventMap)[l.topic]; found {
+		argTypes := typesOf(eventType)
 		expected := reflect.FuncOf(argTypes, []reflect.Type{}, false)
 		if l.callback.Type() != expected {
 			return fmt.Errorf("Argument mismatch")
@@ -216,43 +222,50 @@ func (b *bus) removeListener(l Listener) {
 	}
 }
 
-func (b *bus) verifyMessage(msg message) error {
-	if b.messageMap == nil {
+func (b *bus) verifyEvent(evnt event) error {
+	if b.eventMap == nil {
 		return nil
 	}
-	if messageType, found := (*b.messageMap)[msg.topic]; found {
-		argTypes := typesOf(messageType)
-		expected := typesOf(msg.data)
+	if eventType, found := (*b.eventMap)[evnt.topic]; found {
+		argTypes := typesOf(eventType)
+		expected := typesOf(evnt.data)
 		if !reflect.DeepEqual(argTypes, expected) {
 			return fmt.Errorf("Message data mismatch")
 		}
 		return nil
 	}
-	return fmt.Errorf("No such topic, %q", msg.topic)
+	return fmt.Errorf("No such topic, %q", evnt.topic)
 }
 
-func (b *bus) broadcast(msg message) error {
-	if err := b.verifyMessage(msg); err != nil {
+func (b *bus) broadcast(evnt event) error {
+	if err := b.verifyEvent(evnt); err != nil {
 		return err
 	}
-	if listeners, exists := b.topicListeners[msg.topic]; exists {
+	if listeners, exists := b.topicListeners[evnt.topic]; exists {
 		keepList := []Listener{}
 		for _, l := range listeners {
-			l.channel <- msg.data
+			l.channel <- evnt.data
 			if !l.once {
 				keepList = append(keepList, l)
 			} else {
 				close(l.channel)
 			}
 		}
-		b.topicListeners[msg.topic] = keepList
+		b.topicListeners[evnt.topic] = keepList
 	}
 	return nil
 }
 
-// NewBus creates a new event bus
+// NewBus creates a new event bus.
+//
+// If no event map is specified (see WithEventMap), events to
+// topics with no registered listeners are ignored, and events
+// sent with erronous arguments will panic at the listener callback.
+//
+// Specifying an event map makes listener registration and event
+// posting fail as early as possible.
 func NewBus(options ...Option) Bus {
-	b := &bus{}
+	b := &bus{queueLength: 10}
 
 	for _, o := range options {
 		o(b)
@@ -269,8 +282,8 @@ func NewBus(options ...Option) Bus {
 				request.errors <- b.addListener(request.listener)
 			case removeListenerReq:
 				b.removeListener(request.listener)
-			case sendMessageReq:
-				request.errors <- b.broadcast(request.message)
+			case sendEventReq:
+				request.errors <- b.broadcast(request.event)
 			}
 		}
 	}(b)

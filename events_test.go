@@ -4,7 +4,6 @@ import (
 	"fmt"
 	events "github.com/erkkah/eventually"
 	"testing"
-	"time"
 )
 
 func TestOnce(t *testing.T) {
@@ -56,12 +55,13 @@ func TestUnsubscribe(t *testing.T) {
 	}
 }
 
-func TestMessageMap_OKListenerAndMessage(t *testing.T) {
-	topics := events.MessageMap{
+func TestEventMap_OKListenerAndEvent(t *testing.T) {
+	topics := events.EventMap{
 		"hello": {"string", 42},
 	}
 
-	b := events.NewBus(events.WithMessageMap(topics))
+	b := events.NewBus(events.WithEventMap(topics))
+
 	_, err := b.Once("hello", func(s string, i int) {
 		//
 	})
@@ -73,16 +73,16 @@ func TestMessageMap_OKListenerAndMessage(t *testing.T) {
 	err = b.Post("hello", "foo", 12)
 
 	if err != nil {
-		t.Fatalf("Failed to post message: %v", err)
+		t.Fatalf("Failed to post event: %v", err)
 	}
 }
 
-func TestMessageMap_BadListener(t *testing.T) {
-	topics := events.MessageMap{
+func TestEventMap_BadListener(t *testing.T) {
+	topics := events.EventMap{
 		"hello": {"string", 42},
 	}
 
-	b := events.NewBus(events.WithMessageMap(topics))
+	b := events.NewBus(events.WithEventMap(topics))
 	_, err := b.Once("hello", func(s string, f float32) {
 		//
 	})
@@ -92,12 +92,12 @@ func TestMessageMap_BadListener(t *testing.T) {
 	}
 }
 
-func TestMessageMap_BadMessage(t *testing.T) {
-	topics := events.MessageMap{
+func TestEventMap_BadEvent(t *testing.T) {
+	topics := events.EventMap{
 		"hello": {"string", 42},
 	}
 
-	b := events.NewBus(events.WithMessageMap(topics))
+	b := events.NewBus(events.WithEventMap(topics))
 	_, err := b.Once("hello", func(s string, i int) {
 		//
 	})
@@ -109,16 +109,16 @@ func TestMessageMap_BadMessage(t *testing.T) {
 	err = b.Post("hello", "foo", "splat")
 
 	if err == nil {
-		t.Fatal("Posting mistyped message should fail")
+		t.Fatal("Posting mistyped event should fail")
 	}
 }
 
-func TestMessageMap_UnknownTopic(t *testing.T) {
-	topics := events.MessageMap{
+func TestEventMap_UnknownTopic(t *testing.T) {
+	topics := events.EventMap{
 		"hello": {"string", 42},
 	}
 
-	b := events.NewBus(events.WithMessageMap(topics))
+	b := events.NewBus(events.WithEventMap(topics))
 	_, err := b.Once("hällo", func(s string, i int) {
 		//
 	})
@@ -128,24 +128,64 @@ func TestMessageMap_UnknownTopic(t *testing.T) {
 	}
 }
 
-func foo(msg string) {
-	fmt.Printf("foo: %v\n", msg)
-}
-
-func splat(msg string) {
-	fmt.Printf("splat: %v\n", msg)
-}
-
 func Example() {
-	h := events.NewBus()
-	h.Once("heartbeat", foo)
-	l, _ := h.On("heartbeat", splat)
+	foo := func(msg string) {
+		fmt.Printf("foo: %v\n", msg)
+	}
 
-	h.Post("heartbeat", "1")
-	h.Post("heartbeat", "2")
-	h.Unsubscribe("heartbeat", l)
+	splat := func(msg string) {
+		fmt.Printf("splat: %v\n", msg)
+	}
 
-	h.Post("heartbeat", "3")
+	b := events.NewBus()
 
-	time.Sleep(time.Second * 2)
+	b.Once("heartbeat", foo)
+
+	l, _ := b.On("heartbeat", splat)
+
+	b.Post("heartbeat", "1")
+	b.Post("heartbeat", "2")
+	b.Unsubscribe("heartbeat", l)
+
+	b.Post("heartbeat", "3")
+}
+
+func Example_EventMap() {
+	// EventMap maps from topic to a template of instances
+	// describing the expected event properties.
+	topics := events.EventMap{
+		"hello": {"", int(42)},
+	}
+
+	done := make(chan bool)
+
+	listener := func(name string, age int) {
+		fmt.Printf("Name: %q, age: %v\n", name, age)
+		done <- true
+	}
+
+	b := events.NewBus(events.WithEventMap(topics))
+
+	b.Once("hello", listener)
+
+	// Post to unknown topic
+	err := b.Post("ping")
+	if err != nil {
+		fmt.Println("Ping event not defined")
+	}
+
+	// Post to known topic with wrong arguments
+	err = b.Post("hello", 3.14)
+	if err != nil {
+		fmt.Println("Hello event expects other arguments")
+	}
+
+	b.Post("hello", "Fred", 9)
+
+	<-done
+
+	// Output:
+	// Ping event not defined
+	// Hello event expects other arguments
+	// Name: "Fred", age: 9
 }
