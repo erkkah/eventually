@@ -17,9 +17,7 @@ Get the source using go get:
 
 `go get github.com/erkkah/eventually`
 
-or - even better, use [glide](https://glide.sh):
-
-`glide get github.com/erkkah/eventually`
+or, if you use modules, just import and go!
 
 ## Example
 
